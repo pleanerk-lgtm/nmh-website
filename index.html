@@ -461,6 +461,7 @@ table.trade-table tr:hover td{background:var(--copper-bg)}
   #shopPageCats{grid-template-columns:repeat(2,1fr)!important}
 }
 </style>
+<script src="https://sdks.shopifycdn.com/js-buy-sdk/v2/latest/index.umd.min.js"></script>
 </head>
 <body>
 
@@ -543,6 +544,7 @@ table.trade-table tr:hover td{background:var(--copper-bg)}
         <span class="nav-link" onclick="navigate('about')">The house</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
+        <button id="cartBtn" onclick="goToCheckout()" style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:9px 14px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r2);cursor:pointer;position:relative;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 2h1.5l2 8h7l1.5-6H4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7" cy="13" r="1" fill="currentColor"/><circle cx="12" cy="13" r="1" fill="currentColor"/></svg><span id="cartBadge" style="display:none;background:var(--copper);color:#fff;font-size:9px;font-weight:800;width:16px;height:16px;border-radius:50%;align-items:center;justify-content:center;position:absolute;top:-4px;right:-4px">0</span></button>
         <button class="nav-cta-btn" onclick="openModal()">Open account</button>
         <div class="hamburger-btn" onclick="toggleMenu('menuRetail')"><span></span><span></span><span></span></div>
       </div>
@@ -1138,7 +1140,6 @@ table.trade-table tr:hover td{background:var(--copper-bg)}
       <div class="stash-faq"><div class="stash-faq-q" onclick="toggleFaq(this)">What happens to my metal if NMH closes?<span>+</span></div><div class="stash-faq-a">Your metal is segregated, allocated and in your name. It is not on NMH's balance sheet. In the event of business failure, your metal is yours and is returned to you directly.</div></div>
       <div class="stash-faq"><div class="stash-faq-q" onclick="toggleFaq(this)">Is my metal insured?<span>+</span></div><div class="stash-faq-a">Yes. Full market-value cover underwritten at Lloyd's of London. No excess on verified theft or loss while in custody at the Sandton vault.</div></div>
       <div class="stash-faq"><div class="stash-faq-q" onclick="toggleFaq(this)">How do I take delivery?<span>+</span></div><div class="stash-faq-a">Request delivery at any time from your account dashboard. G4S insured courier delivers to your door anywhere in South Africa, next business day from Sandton.</div></div>
-      <div class="stash-faq"><div class="stash-faq-q" onclick="toggleFaq(this)">What is the minimum?<span>+</span></div><div class="stash-faq-a">R500 per month. No maximum. You can run multiple Stashes across different metals simultaneously.</div></div>
     </div>
   </div>
 
@@ -1151,6 +1152,7 @@ table.trade-table tr:hover td{background:var(--copper-bg)}
 </div>
 
 <script>
+
 const FX=16.26;
 const METALS={
   AU:{sym:'AU',name:'Gold',usd:4433.70,unit:'troy oz',chg:'-1.19',bg:'#FFFBEB',sc:'#B8960C',unitKey:'oz'},
@@ -1308,7 +1310,89 @@ function closeDrawer(){
   document.querySelectorAll('.shop-cat').forEach(c=>c.classList.remove('active'));
 }
 function railScroll(d){document.getElementById('prodRail').scrollBy({left:d*200,behavior:'smooth'})}
-function addCart(name,price,btn){btn.textContent='Added';btn.style.background='#166534';setTimeout(()=>{btn.textContent='Add to cart';btn.style.background='var(--ink)'},2200)}
+
+// ── SHOPIFY ──
+var shopifyClient = null;
+var shopifyCheckout = null;
+
+function initShopify(){
+  shopifyClient = ShopifyBuy.buildClient({
+    domain: '1wqssh-i1.myshopify.com',
+    storefrontAccessToken: 'bcaa8b12e463aa3ff4de3b0e5c6d91e7'
+  });
+  shopifyClient.checkout.create().then(function(checkout){
+    shopifyCheckout = checkout;
+    localStorage.setItem('nmh_checkout_id', checkout.id);
+  });
+}
+
+function addCart(name, price, btn){
+  if(!shopifyClient){
+    // Shopify not loaded yet - show feedback and open account modal
+    btn.textContent = 'Opening account...';
+    btn.style.background = 'var(--copper)';
+    setTimeout(function(){btn.textContent='Add to cart';btn.style.background='var(--ink)';}, 2000);
+    openModal();
+    return;
+  }
+
+  btn.textContent = 'Adding...';
+  btn.style.background = 'var(--copper)';
+  btn.disabled = true;
+
+  // Search for product by title
+  shopifyClient.product.fetchAll().then(function(products){
+    var match = products.find(function(p){
+      return p.title.toLowerCase().indexOf(name.toLowerCase()) !== -1;
+    });
+
+    if(!match){
+      // Product not yet in Shopify - show message
+      btn.textContent = 'Contact desk';
+      btn.style.background = 'var(--ink)';
+      btn.disabled = false;
+      setTimeout(function(){btn.textContent='Add to cart';}, 2500);
+      return;
+    }
+
+    var variantId = match.variants[0].id;
+    var lineItems = [{variantId: variantId, quantity: 1}];
+
+    var checkoutId = shopifyCheckout ? shopifyCheckout.id : localStorage.getItem('nmh_checkout_id');
+
+    shopifyClient.checkout.addLineItems(checkoutId, lineItems).then(function(checkout){
+      shopifyCheckout = checkout;
+      btn.textContent = 'Added ✓';
+      btn.style.background = '#166534';
+      btn.disabled = false;
+      // Show cart indicator
+      showCartBadge(checkout.lineItems.length);
+      setTimeout(function(){btn.textContent='Add to cart';btn.style.background='var(--ink)';}, 2500);
+    });
+  }).catch(function(err){
+    console.error('Shopify error:', err);
+    btn.textContent = 'Try again';
+    btn.style.background = 'var(--red)';
+    btn.disabled = false;
+    setTimeout(function(){btn.textContent='Add to cart';btn.style.background='var(--ink)';}, 2500);
+  });
+}
+
+function goToCheckout(){
+  if(shopifyCheckout && shopifyCheckout.webUrl){
+    window.open(shopifyCheckout.webUrl, '_blank');
+  } else {
+    openModal();
+  }
+}
+
+function showCartBadge(count){
+  var badge = document.getElementById('cartBadge');
+  if(!badge) return;
+  badge.textContent = count;
+  badge.style.display = count > 0 ? 'flex' : 'none';
+}
+
 
 function setMetal(sym,btn){
   stashMetal=sym;
@@ -1367,6 +1451,7 @@ buildTicker();
 buildShop();
 buildLME();
 calcStash();
+if(typeof ShopifyBuy !== "undefined"){initShopify();}else{window.addEventListener("load",initShopify);}
 
 // Shop page
 let shopPageActiveCat = null;
@@ -1500,7 +1585,6 @@ function toggleFaq(el){
   const ans = el.nextElementSibling;
   ans.classList.toggle('open');
 }
-
 </script>
 </body>
 </html>
