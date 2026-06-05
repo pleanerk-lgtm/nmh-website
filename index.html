@@ -1235,83 +1235,8 @@ function buildLME(){
   el.innerHTML=LME.map(m=>'<div class="lme-row"><div style="display:flex;align-items:center;gap:10px"><span class="lme-sym">'+m.sym+'</span><span class="lme-name">'+m.name+'</span></div><div><div class="lme-price">'+m.price.toLocaleString()+'</div><div class="lme-unit">'+m.unit+'</div><div class="lme-chg '+(m.up?'lme-up':'lme-dn')+'">'+(m.up?'+':'')+m.chg+'%</div></div></div>').join('');
 }
 
-function buildShop(){
-  var el = document.getElementById('shopCats');
-  if(!el) return;
-  var out = '';
-  SHOP_CATS.forEach(function(c){
-    if(c.isStash){
-      out += '<div class="shop-cat" style="background:#17161A;border-color:rgba(255,255,255,.1)" data-page="stash">'
-           + '<div><div class="shop-cat-sym" style="color:#C97835">'+c.sym+'</div>'
-           + '<div class="shop-cat-name" style="color:#fff">'+c.name+'</div>'
-           + '<div class="shop-cat-sub" style="color:rgba(255,255,255,.5)">'+c.sub+'</div></div>'
-           + '<div class="shop-cat-price" style="color:#C97835">From R500/mo</div>'
-           + '<div class="shop-cat-arr" style="color:rgba(255,255,255,.2)">&#8594;</div></div>';
-    } else {
-      var m = METALS[c.ref];
-      var zar = m.unitKey==='kg' ? 'R'+(m.usd*FX).toFixed(2)+'/kg' : 'R'+Math.round(m.usd*FX).toLocaleString()+'/oz';
-      out += '<div class="shop-cat" id="cat-'+c.id+'" style="background:'+c.bg+'" data-cat="'+c.id+'">'
-           + '<div><div class="shop-cat-sym" style="color:'+c.sc+'">'+c.sym+'</div>'
-           + '<div class="shop-cat-name">'+c.name+'</div>'
-           + '<div class="shop-cat-sub">'+c.sub+'</div></div>'
-           + '<div class="shop-cat-price">'+zar+'</div>'
-           + '<div class="shop-cat-arr">&#8594;</div></div>';
-    }
-  });
-  el.innerHTML = out;
-  el.onclick = function(e){
-    var tile = e.target.closest('[data-cat],[data-page]');
-    if(!tile) return;
-    if(tile.dataset.page) navigate(tile.dataset.page);
-    else if(tile.dataset.cat) openCat(tile.dataset.cat);
-  };
-}
 
-function openCat(id){
-  if(activeCat===id){closeDrawer();return;}
-  activeCat=id;
-  document.querySelectorAll('.shop-cat').forEach(c=>c.classList.remove('active'));
-  const tile=document.getElementById('cat-'+id);if(tile)tile.classList.add('active');
-  const c=SHOP_CATS.find(x=>x.id===id);
-  const m=METALS[c.ref];
-  const zar=m.unitKey==='kg'?'R'+(m.usd*FX).toFixed(2)+'/kg · LME-indexed':'R'+Math.round(m.usd*FX).toLocaleString()+'/oz · Spot price';
-  const badge=document.getElementById('drawerBadge');
-  badge.textContent=c.sym;badge.style.background=c.bg;badge.style.color=c.sc;badge.style.border='1px solid '+c.sc+'44';
-  document.getElementById('drawerTitle').textContent=c.name;
-  document.getElementById('drawerPrice').textContent=zar+' · 10-min price lock';
-  document.getElementById('prodRail').innerHTML=c.products.map(p=>{
-    const pm=METALS[p.sym];
-    const price='R'+Math.round(pm.usd*FX*p.mult).toLocaleString();
-    const up=!pm.chg.startsWith('-');
-    var card='<div class="prod-card"><div class="prod-img" style="background:'+c.bg+'">'+p.emoji+'</div>';
-    card+='<div class="prod-body"><div class="prod-sym">'+p.sym+' &middot; '+p.form+'</div>';
-    card+='<div class="prod-name">'+p.name+'</div><div class="prod-wt">'+p.wt+'</div>';
-    card+='<div class="prod-price">'+price+'</div>';
-    card+='<div class="prod-unit">ZAR &middot; <span style="color:'+(up?'#166534':'#991B1B')+'">'+pm.chg+'%</span></div>';
-    card+='<button class="prod-btn" data-name="'+p.name+'" data-price="'+price+'">Add to cart</button></div></div>';
-    return card;
-  }).join('');
-
-  // wire add-to-cart
-  document.querySelectorAll('.prod-btn[data-name]').forEach(function(btn){
-    btn.onclick=function(){addCart(this.dataset.name,this.dataset.price,this);};
-  });
-  document.getElementById('shopDrawer').style.display='block';
-  if(window.innerWidth>700){
-    document.getElementById('railPrev').style.display='flex';
-    document.getElementById('railNext').style.display='flex';
-  }
-  setTimeout(()=>document.getElementById('shopDrawer').scrollIntoView({behavior:'smooth',block:'nearest'}),60);
-}
-
-function closeDrawer(){
-  activeCat=null;
-  document.getElementById('shopDrawer').style.display='none';
-  document.querySelectorAll('.shop-cat').forEach(c=>c.classList.remove('active'));
-}
-function railScroll(d){document.getElementById('prodRail').scrollBy({left:d*200,behavior:'smooth'})}
-
-// ── SHOPIFY ──
+// ── SHOPIFY CLIENT ──
 var shopifyClient = null;
 var shopifyCheckout = null;
 
@@ -1320,70 +1245,61 @@ function initShopify(){
     domain: '1wqssh-i1.myshopify.com',
     storefrontAccessToken: 'bcaa8b12e463aa3ff4de3b0e5c6d91e7'
   });
-  shopifyClient.checkout.create().then(function(checkout){
-    shopifyCheckout = checkout;
-    localStorage.setItem('nmh_checkout_id', checkout.id);
-  });
+  var savedId = localStorage.getItem('nmh_checkout_id');
+  var createNew = function(){
+    shopifyClient.checkout.create().then(function(checkout){
+      shopifyCheckout = checkout;
+      localStorage.setItem('nmh_checkout_id', checkout.id);
+    });
+  };
+  if(savedId){
+    shopifyClient.checkout.fetch(savedId).then(function(checkout){
+      if(checkout && !checkout.completedAt){
+        shopifyCheckout = checkout;
+        showCartBadge(checkout.lineItems.length);
+      } else { createNew(); }
+    }).catch(createNew);
+  } else { createNew(); }
 }
 
-function addCart(name, price, btn){
-  if(!shopifyClient){
-    // Shopify not loaded yet - show feedback and open account modal
-    btn.textContent = 'Opening account...';
-    btn.style.background = 'var(--copper)';
-    setTimeout(function(){btn.textContent='Add to cart';btn.style.background='var(--ink)';}, 2000);
-    openModal();
+function addCartById(variantId, name, price, btn){
+  if(!shopifyClient || !shopifyCheckout){
+    btn.textContent = 'Please wait...';
+    setTimeout(function(){
+      if(shopifyCheckout) addCartById(variantId, name, price, btn);
+      else btn.textContent = 'Add to cart';
+    }, 1000);
     return;
   }
-
   btn.textContent = 'Adding...';
   btn.style.background = 'var(--copper)';
   btn.disabled = true;
-
-  // Search for product by title
-  shopifyClient.product.fetchAll().then(function(products){
-    var match = products.find(function(p){
-      return p.title.toLowerCase().indexOf(name.toLowerCase()) !== -1;
-    });
-
-    if(!match){
-      // Product not yet in Shopify - show message
-      btn.textContent = 'Contact desk';
-      btn.style.background = 'var(--ink)';
-      btn.disabled = false;
-      setTimeout(function(){btn.textContent='Add to cart';}, 2500);
-      return;
-    }
-
-    var variantId = match.variants[0].id;
-    var lineItems = [{variantId: variantId, quantity: 1}];
-
-    var checkoutId = shopifyCheckout ? shopifyCheckout.id : localStorage.getItem('nmh_checkout_id');
-
-    shopifyClient.checkout.addLineItems(checkoutId, lineItems).then(function(checkout){
+  shopifyClient.checkout.addLineItems(shopifyCheckout.id, [{variantId:variantId, quantity:1}])
+    .then(function(checkout){
       shopifyCheckout = checkout;
       btn.textContent = 'Added ✓';
       btn.style.background = '#166534';
       btn.disabled = false;
-      // Show cart indicator
       showCartBadge(checkout.lineItems.length);
       setTimeout(function(){btn.textContent='Add to cart';btn.style.background='var(--ink)';}, 2500);
+    })
+    .catch(function(err){
+      console.error('Add to cart error:', err);
+      btn.textContent = 'Try again';
+      btn.style.background = 'var(--red)';
+      btn.disabled = false;
+      setTimeout(function(){btn.textContent='Add to cart';btn.style.background='var(--ink)';}, 2500);
     });
-  }).catch(function(err){
-    console.error('Shopify error:', err);
-    btn.textContent = 'Try again';
-    btn.style.background = 'var(--red)';
-    btn.disabled = false;
-    setTimeout(function(){btn.textContent='Add to cart';btn.style.background='var(--ink)';}, 2500);
-  });
+}
+
+function addCart(name, price, btn){
+  openModal();
 }
 
 function goToCheckout(){
   if(shopifyCheckout && shopifyCheckout.webUrl){
     window.open(shopifyCheckout.webUrl, '_blank');
-  } else {
-    openModal();
-  }
+  } else { openModal(); }
 }
 
 function showCartBadge(count){
@@ -1394,98 +1310,212 @@ function showCartBadge(count){
 }
 
 
-function setMetal(sym,btn){
-  stashMetal=sym;
-  document.querySelectorAll('.mtab').forEach(t=>t.classList.remove('active'));
-  btn.classList.add('active');
-  calcStash();
-}
-function calcStash(){
-  const monthly=parseInt(document.getElementById('slMonthly').value);
-  const years=parseInt(document.getElementById('slYears').value);
-  document.getElementById('outMonthly').textContent='R'+monthly.toLocaleString();
-  document.getElementById('outYears').textContent=years+' year'+(years>1?'s':'');
-  const total=monthly*12*years;
-  const m=METALS[stashMetal];
-  const names={AU:'gold',AG:'silver',PT:'platinum',PD:'palladium',CU:'copper'};
-  let wt,sub;
-  if(m.unitKey==='kg'){wt=(total/(m.usd*FX)).toFixed(1)+'kg';sub='Total invested: R'+total.toLocaleString()+' · CU R'+(m.usd*FX).toFixed(2)+'/kg';}
-  else{const g=(total/(m.usd*FX))*31.1035;wt=g.toFixed(1)+'g';sub='Total invested: R'+total.toLocaleString()+' · '+m.sym+' R'+Math.round(m.usd*FX).toLocaleString()+'/oz';}
-  document.getElementById('calcLabel').textContent='Estimated '+names[stashMetal]+' accumulated';
-  document.getElementById('outWeight').textContent=wt;
-  document.getElementById('outSub').textContent=sub;
-}
+// ─── SHOPIFY DYNAMIC SHOP ───────────────────────────────────────────────────
+// Products are fetched from Shopify and sorted by tag into categories.
+// Tag your Shopify products with: precious | pgm | base | nonferrous | stash
 
-function navigate(page){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.getElementById('page-'+page).classList.add('active');
-  window.scrollTo(0,0);
-  closeDrawer();
-  buildTicker();
-  if(page==='retail')buildShop();
-  if(page==='wholesale')buildLME();
-  if(page==='shop'){buildShopPage();}
-  if(page==='stash'){buildStashPage();}
-}
+var shopifyProducts = [];     // all products fetched from Shopify
+var shopLoaded = false;
 
-function goTo(id,linkEl){
-  const el=document.getElementById(id);
-  if(!el)return;
-  const nav=document.querySelector('.topnav');
-  const offset=nav?nav.offsetHeight+8:64;
-  window.scrollTo({top:el.getBoundingClientRect().top+window.pageYOffset-offset,behavior:'smooth'});
-  if(linkEl){linkEl.closest('.nav-links-desktop')?.querySelectorAll('.nav-link').forEach(l=>l.classList.remove('active'));linkEl.classList.add('active');}
+var CAT_CONFIG = {
+  precious:   {sym:'AU/AG',  name:'Precious Metals', sub:'Gold and Silver',        bg:'#FFFBEB', sc:'#B8960C'},
+  pgm:        {sym:'PT/PD',  name:'PGMs',            sub:'Platinum and Palladium', bg:'#F3F4F6', sc:'#4B5563'},
+  base:       {sym:'CU',     name:'Base Metals',      sub:'Copper',                bg:'#FFF7ED', sc:'#9A3412'},
+  nonferrous: {sym:'AL/NI',  name:'Non-Ferrous',      sub:'Aluminium, Nickel, Zinc',bg:'#F0F9FF', sc:'#0369A1'},
+  stash:      {sym:'STASH',  name:'The Stash',        sub:'Monthly savings plan',  bg:'#17161A', sc:'#C97835', isStash:true}
+};
+
+var CAT_ORDER = ['precious','pgm','base','nonferrous','stash'];
+
+function fetchShopifyProducts(callback){
+  if(!shopifyClient){
+    // Shopify not ready yet - retry in 800ms
+    setTimeout(function(){fetchShopifyProducts(callback);}, 800);
+    return;
+  }
+  if(shopLoaded){callback(shopifyProducts);return;}
+  shopifyClient.product.fetchAll(250).then(function(products){
+    shopifyProducts = products;
+    shopLoaded = true;
+    callback(products);
+  }).catch(function(err){
+    console.error('Shopify fetch error:', err);
+    callback([]);
+  });
 }
 
-function toggleMenu(id){document.getElementById(id)?.classList.toggle('open')}
-function closeMenu(id){document.getElementById(id)?.classList.remove('open')}
-document.addEventListener('click',function(e){if(!e.target.closest('.topnav'))document.querySelectorAll('.mobile-menu').forEach(m=>m.classList.remove('open'))});
+function getProductsByCategory(products, catId){
+  return products.filter(function(p){
+    var tags = p.tags ? p.tags.map(function(t){return t.toLowerCase().trim();}) : [];
+    return tags.indexOf(catId) !== -1;
+  });
+}
 
-function openModal(){document.getElementById('accountModal').classList.add('open')}
-function closeModal(){document.getElementById('accountModal').classList.remove('open')}
-document.getElementById('accountModal').addEventListener('click',function(e){if(e.target===this)closeModal()});
-function submitAccount(){document.getElementById('accountSuccess').style.display='block';setTimeout(closeModal,2600)}
-function submitEnquiry(){document.getElementById('enqSuccess').style.display='block'}
+function formatPrice(variant){
+  var amount = parseFloat(variant.price.amount || variant.price);
+  return 'R' + Math.round(amount).toLocaleString();
+}
 
-buildTicker();
-buildShop();
-buildLME();
-calcStash();
-if(typeof ShopifyBuy !== "undefined"){initShopify();}else{window.addEventListener("load",initShopify);}
+function buildProductCard(product, variant, catBg){
+  var price = formatPrice(variant);
+  var title = product.title + (variant.title && variant.title !== 'Default Title' ? ' - ' + variant.title : '');
+  var imgUrl = product.images && product.images[0] ? product.images[0].src : null;
+  var imgHtml = imgUrl
+    ? '<img src="'+imgUrl+'" style="width:100%;height:100%;object-fit:cover;" loading="lazy" alt="'+title+'">'
+    : '<span style="font-size:36px">'+getCatEmoji(product.tags)+'</span>';
+  var available = variant.available !== false;
 
-// Shop page
-let shopPageActiveCat = null;
-function buildShopPage(){
-  var el = document.getElementById('shopPageCats');
+  return [
+    '<div class="prod-card'+(available?'':' prod-sold-out')+'">',
+      '<div class="prod-img" style="background:'+catBg+'">'+imgHtml+'</div>',
+      '<div class="prod-body">',
+        '<div class="prod-sym">'+getCatSym(product.tags)+'</div>',
+        '<div class="prod-name">'+title+'</div>',
+        '<div class="prod-wt">'+(product.variants.length > 1 ? product.variants.length+' variants' : (variant.weight ? variant.weight+'g' : ''))+'</div>',
+        '<div class="prod-price">'+(available ? price : '<span style="color:var(--ink3);font-size:14px">Out of stock</span>')+'</div>',
+        '<div class="prod-unit">ZAR incl. VAT</div>',
+        available
+          ? '<button class="prod-btn" data-variant-id="'+variant.id+'" data-name="'+title+'" data-price="'+price+'">Add to cart</button>'
+          : '<button class="prod-btn" style="background:var(--ink3);cursor:default" disabled>Out of stock</button>',
+      '</div>',
+    '</div>'
+  ].join('');
+}
+
+function getCatEmoji(tags){
+  if(!tags) return '📦';
+  var t = tags.map(function(x){return x.toLowerCase();});
+  if(t.indexOf('precious')!==-1) return '🥇';
+  if(t.indexOf('pgm')!==-1) return '⬟';
+  if(t.indexOf('base')!==-1) return '🟫';
+  if(t.indexOf('nonferrous')!==-1) return '⬡';
+  return '📦';
+}
+
+function getCatSym(tags){
+  if(!tags) return '';
+  var t = tags.map(function(x){return x.toLowerCase();});
+  if(t.indexOf('precious')!==-1) return 'AU/AG';
+  if(t.indexOf('pgm')!==-1) return 'PT/PD';
+  if(t.indexOf('base')!==-1) return 'CU';
+  if(t.indexOf('nonferrous')!==-1) return 'AL/NI';
+  return '';
+}
+
+function buildCatTiles(containerId, products, onCatClick){
+  var el = document.getElementById(containerId);
   if(!el) return;
-  var fb = document.getElementById('shopFxBadge');
-  if(fb) fb.textContent = FX.toFixed(2);
   var html = '';
-  SHOP_CATS.forEach(function(c){
-    if(c.isStash){
+  CAT_ORDER.forEach(function(catId){
+    var cfg = CAT_CONFIG[catId];
+    if(cfg.isStash){
       html += '<div class="shop-cat" style="background:#17161A;border-color:rgba(255,255,255,.1)" data-page="stash">'
-            + '<div><div class="shop-cat-sym" style="color:#C97835">'+c.sym+'</div>'
-            + '<div class="shop-cat-name" style="color:#fff">'+c.name+'</div>'
-            + '<div class="shop-cat-sub" style="color:rgba(255,255,255,.5)">'+c.sub+'</div></div>'
-            + '<div class="shop-cat-price" style="color:#C97835">From R500/mo</div></div>';
-    } else {
-      var m = METALS[c.ref];
-      var zar = m.unitKey==='kg' ? 'R'+(m.usd*FX).toFixed(2)+'/kg' : 'R'+Math.round(m.usd*FX).toLocaleString()+'/oz';
-      html += '<div class="shop-cat" id="scat-'+c.id+'" style="background:'+c.bg+'" data-cat="'+c.id+'">'
-            + '<div><div class="shop-cat-sym" style="color:'+c.sc+'">'+c.sym+'</div>'
-            + '<div class="shop-cat-name">'+c.name+'</div>'
-            + '<div class="shop-cat-sub">'+c.sub+'</div></div>'
-            + '<div class="shop-cat-price">'+zar+'</div>'
-            + '<div class="shop-cat-arr">&#8594;</div></div>';
+            + '<div><div class="shop-cat-sym" style="color:#C97835">'+cfg.sym+'</div>'
+            + '<div class="shop-cat-name" style="color:#fff">'+cfg.name+'</div>'
+            + '<div class="shop-cat-sub" style="color:rgba(255,255,255,.5)">'+cfg.sub+'</div></div>'
+            + '<div class="shop-cat-price" style="color:#C97835">From R500/mo</div>'
+            + '<div class="shop-cat-arr" style="color:rgba(255,255,255,.2)">&#8594;</div></div>';
+      return;
     }
+    var catProducts = getProductsByCategory(products, catId);
+    var count = catProducts.length;
+    var priceLabel = count > 0
+      ? 'From '+formatPrice(catProducts[0].variants[0])
+      : (shopLoaded ? 'Coming soon' : 'Loading...');
+    html += '<div class="shop-cat" id="cat-'+catId+'" style="background:'+cfg.bg+'" data-cat="'+catId+'">'
+          + '<div><div class="shop-cat-sym" style="color:'+cfg.sc+'">'+cfg.sym+'</div>'
+          + '<div class="shop-cat-name">'+cfg.name+'</div>'
+          + '<div class="shop-cat-sub">'+cfg.sub+(count > 0 ? ' · '+count+' products' : '')+'</div></div>'
+          + '<div class="shop-cat-price">'+priceLabel+'</div>'
+          + '<div class="shop-cat-arr">&#8594;</div></div>';
   });
   el.innerHTML = html;
   el.onclick = function(e){
     var tile = e.target.closest('[data-cat],[data-page]');
     if(!tile) return;
     if(tile.dataset.page) navigate(tile.dataset.page);
-    else if(tile.dataset.cat) openShopCat(tile.dataset.cat);
+    else if(tile.dataset.cat) onCatClick(tile.dataset.cat);
   };
+}
+
+function buildProductRail(railId, drawerId, badgeId, titleId, priceId, catId, products){
+  var cfg = CAT_CONFIG[catId];
+  var catProducts = getProductsByCategory(products, catId);
+
+  // Drawer header
+  var badge = document.getElementById(badgeId);
+  if(badge){badge.textContent=cfg.sym;badge.style.background=cfg.bg;badge.style.color=cfg.sc;badge.style.border='1px solid '+cfg.sc+'44';}
+  var titleEl = document.getElementById(titleId);
+  if(titleEl) titleEl.textContent = cfg.name;
+  var priceEl = document.getElementById(priceId);
+  if(priceEl) priceEl.textContent = catProducts.length > 0
+    ? 'From '+formatPrice(catProducts[0].variants[0])+' · 10-min price lock'
+    : 'Contact the desk for pricing';
+
+  // Build product cards - one card per variant
+  var rail = document.getElementById(railId);
+  if(!rail) return;
+
+  if(catProducts.length === 0 && shopLoaded){
+    rail.innerHTML = '<div style="padding:24px 20px;font-size:13px;color:var(--ink3)">No products in this category yet. Check back soon.</div>';
+  } else if(!shopLoaded){
+    rail.innerHTML = '<div style="padding:24px 20px;font-size:13px;color:var(--ink3)">Loading products...</div>';
+  } else {
+    var cards = '';
+    catProducts.forEach(function(product){
+      product.variants.forEach(function(variant){
+        cards += buildProductCard(product, variant, cfg.bg);
+      });
+    });
+    rail.innerHTML = cards;
+  }
+
+  // Wire add-to-cart buttons
+  rail.querySelectorAll('.prod-btn[data-variant-id]').forEach(function(btn){
+    btn.onclick = function(){addCartById(this.dataset.variantId, this.dataset.name, this.dataset.price, this);};
+  });
+
+  // Show drawer
+  var drawer = document.getElementById(drawerId);
+  if(drawer){
+    drawer.style.display = 'block';
+    setTimeout(function(){drawer.scrollIntoView({behavior:'smooth',block:'nearest'});}, 60);
+  }
+  if(window.innerWidth > 700){
+    var prev = document.getElementById(railId.replace('Rail','RailPrev').replace('Prod',''));
+    var next = document.getElementById(railId.replace('Rail','RailNext').replace('Prod',''));
+    if(prev) prev.style.display='flex';
+    if(next) next.style.display='flex';
+  }
+}
+
+// ── RETAIL PAGE SHOP ──
+
+function buildShop(){
+  fetchShopifyProducts(function(products){
+    buildCatTiles('shopCats', products, openCat);
+  });
+}
+
+function openCat(id){
+  if(activeCat===id){closeDrawer();return;}
+  activeCat=id;
+  document.querySelectorAll('#shopCats .shop-cat').forEach(c=>c.classList.remove('active'));
+  document.getElementById('cat-'+id)?.classList.add('active');
+  fetchShopifyProducts(function(products){
+    buildProductRail('prodRail','shopDrawer','drawerBadge','drawerTitle','drawerPrice',id,products);
+  });
+}
+
+// ── SHOP PAGE ──
+var shopPageActiveCat = null;
+
+function buildShopPage(){
+  var fb = document.getElementById('shopFxBadge');
+  if(fb) fb.textContent = FX.toFixed(2);
+  fetchShopifyProducts(function(products){
+    buildCatTiles('shopPageCats', products, openShopCat);
+  });
 }
 
 function openShopCat(id){
@@ -1493,36 +1523,9 @@ function openShopCat(id){
   shopPageActiveCat=id;
   document.querySelectorAll('#shopPageCats .shop-cat').forEach(c=>c.classList.remove('active'));
   document.getElementById('scat-'+id)?.classList.add('active');
-  const c = SHOP_CATS.find(x=>x.id===id);
-  const m = METALS[c.ref];
-  const zar = m.unitKey==='kg' ? 'R'+(m.usd*FX).toFixed(2)+'/kg · LME-indexed' : 'R'+Math.round(m.usd*FX).toLocaleString()+'/oz · Spot price';
-  const badge = document.getElementById('shopDrawerBadge');
-  badge.textContent=c.sym; badge.style.background=c.bg; badge.style.color=c.sc; badge.style.border='1px solid '+c.sc+'44';
-  document.getElementById('shopDrawerTitle').textContent=c.name;
-  document.getElementById('shopDrawerPrice').textContent=zar+' · 10-min price lock';
-  document.getElementById('shopProdRail').innerHTML = c.products.map(p => {
-    const pm = METALS[p.sym];
-    const price = 'R'+Math.round(pm.usd*FX*p.mult).toLocaleString();
-    const up = !pm.chg.startsWith('-');
-    var card2='<div class="prod-card"><div class="prod-img" style="background:'+c.bg+'">'+p.emoji+'</div>';
-    card2+='<div class="prod-body"><div class="prod-sym">'+p.sym+' &middot; '+p.form+'</div>';
-    card2+='<div class="prod-name">'+p.name+'</div><div class="prod-wt">'+p.wt+'</div>';
-    card2+='<div class="prod-price">'+price+'</div>';
-    card2+='<div class="prod-unit">ZAR &middot; <span style="color:'+(up?'#166534':'#991B1B')+'">'+pm.chg+'%</span></div>';
-    card2+='<button class="prod-btn" data-name="'+p.name+'" data-price="'+price+'">Add to cart</button></div></div>';
-    return card2;
-  }).join('');
-
-  // wire add-to-cart
-  document.querySelectorAll('.prod-btn[data-name]').forEach(function(btn){
-    btn.onclick=function(){addCart(this.dataset.name,this.dataset.price,this);};
+  fetchShopifyProducts(function(products){
+    buildProductRail('shopProdRail','shopPageDrawer','shopDrawerBadge','shopDrawerTitle','shopDrawerPrice',id,products);
   });
-  document.getElementById('shopPageDrawer').style.display='block';
-  if(window.innerWidth>700){
-    document.getElementById('shopRailPrev').style.display='flex';
-    document.getElementById('shopRailNext').style.display='flex';
-  }
-  setTimeout(()=>document.getElementById('shopPageDrawer').scrollIntoView({behavior:'smooth',block:'nearest'}),60);
 }
 
 function closeShopDrawer(){
@@ -1585,6 +1588,111 @@ function toggleFaq(el){
   const ans = el.nextElementSibling;
   ans.classList.toggle('open');
 }
+
+// ── STASH CALCULATOR (retail page) ──
+function setMetal(sym, btn){
+  stashMetal = sym;
+  document.querySelectorAll('.mtab').forEach(function(t){t.classList.remove('active');});
+  btn.classList.add('active');
+  calcStash();
+}
+function calcStash(){
+  var mEl = document.getElementById('slMonthly');
+  var yEl = document.getElementById('slYears');
+  if(!mEl || !yEl) return;
+  var monthly = parseInt(mEl.value);
+  var years = parseInt(yEl.value);
+  var oM = document.getElementById('outMonthly'); if(oM) oM.textContent = 'R'+monthly.toLocaleString();
+  var oY = document.getElementById('outYears'); if(oY) oY.textContent = years+' year'+(years>1?'s':'');
+  var total = monthly*12*years;
+  var m = METALS[stashMetal];
+  var names = {AU:'gold',AG:'silver',PT:'platinum',PD:'palladium',CU:'copper'};
+  var wt, sub;
+  if(m.unitKey==='kg'){
+    wt = (total/(m.usd*FX)).toFixed(1)+'kg';
+    sub = 'Total invested: R'+total.toLocaleString()+' · '+m.sym+' R'+(m.usd*FX).toFixed(2)+'/kg';
+  } else {
+    var g = (total/(m.usd*FX))*31.1035;
+    wt = g.toFixed(1)+'g';
+    sub = 'Total invested: R'+total.toLocaleString()+' · '+m.sym+' R'+Math.round(m.usd*FX).toLocaleString()+'/oz';
+  }
+  var lbl = document.getElementById('calcLabel'); if(lbl) lbl.textContent = 'Estimated '+names[stashMetal]+' accumulated';
+  var ow = document.getElementById('outWeight'); if(ow) ow.textContent = wt;
+  var os = document.getElementById('outSub'); if(os) os.textContent = sub;
+}
+
+// ── DRAWERS ──
+function closeDrawer(){
+  activeCat = null;
+  var d = document.getElementById('shopDrawer'); if(d) d.style.display='none';
+  document.querySelectorAll('#shopCats .shop-cat').forEach(function(c){c.classList.remove('active');});
+}
+function railScroll(dir){
+  var r = document.getElementById('prodRail'); if(r) r.scrollBy({left:dir*200,behavior:'smooth'});
+}
+
+// ── NAVIGATION ──
+function navigate(page){
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
+  var target = document.getElementById('page-'+page);
+  if(target) target.classList.add('active');
+  window.scrollTo(0,0);
+  closeDrawer();
+  buildTicker();
+  if(page==='retail') buildShop();
+  if(page==='wholesale') buildLME();
+  if(page==='shop') buildShopPage();
+  if(page==='stash') buildStashPage();
+}
+function goTo(id, linkEl){
+  var el = document.getElementById(id);
+  if(!el) return;
+  var nav = document.querySelector('.topnav');
+  var offset = nav ? nav.offsetHeight+8 : 64;
+  window.scrollTo({top: el.getBoundingClientRect().top + window.pageYOffset - offset, behavior:'smooth'});
+  if(linkEl){
+    var parent = linkEl.closest('.nav-links-desktop');
+    if(parent) parent.querySelectorAll('.nav-link').forEach(function(l){l.classList.remove('active');});
+    linkEl.classList.add('active');
+  }
+}
+
+// ── MOBILE MENU ──
+function toggleMenu(id){
+  var el = document.getElementById(id); if(el) el.classList.toggle('open');
+}
+function closeMenu(id){
+  var el = document.getElementById(id); if(el) el.classList.remove('open');
+}
+document.addEventListener('click', function(e){
+  if(!e.target.closest('.topnav')){
+    document.querySelectorAll('.mobile-menu').forEach(function(m){m.classList.remove('open');});
+  }
+});
+
+// ── MODALS ──
+function openModal(){ document.getElementById('accountModal').classList.add('open'); }
+function closeModal(){ document.getElementById('accountModal').classList.remove('open'); }
+document.getElementById('accountModal').addEventListener('click', function(e){ if(e.target===this) closeModal(); });
+function submitAccount(){
+  var s = document.getElementById('accountSuccess'); if(s) s.style.display='block';
+  setTimeout(closeModal, 2600);
+}
+function submitEnquiry(){
+  var s = document.getElementById('enqSuccess'); if(s) s.style.display='block';
+}
+
+// ── INIT ──
+buildTicker();
+buildLME();
+calcStash();
+buildShop();
+window.addEventListener('load', function(){
+  if(typeof ShopifyBuy !== 'undefined'){
+    initShopify();
+    setTimeout(function(){ fetchShopifyProducts(function(){}); }, 1500);
+  }
+});
 </script>
 </body>
 </html>
