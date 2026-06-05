@@ -1346,7 +1346,11 @@ function fetchShopifyProducts(callback){
 
 function getProductsByCategory(products, catId){
   return products.filter(function(p){
-    var tags = p.tags ? p.tags.map(function(t){return t.toLowerCase().trim();}) : [];
+    // Shopify SDK can return tags as array of strings or comma-separated string
+    var raw = p.tags || [];
+    var tags = Array.isArray(raw)
+      ? raw.map(function(t){return t.toLowerCase().trim();})
+      : String(raw).split(',').map(function(t){return t.toLowerCase().trim();});
     return tags.indexOf(catId) !== -1;
   });
 }
@@ -1682,6 +1686,20 @@ function submitEnquiry(){
   var s = document.getElementById('enqSuccess'); if(s) s.style.display='block';
 }
 
+
+// ── DEBUG: logs Shopify products to console so you can verify tags ──
+function debugShopify(){
+  fetchShopifyProducts(function(products){
+    console.log('NMH Shopify: '+products.length+' products fetched');
+    products.forEach(function(p){
+      console.log('  Product: "'+p.title+'" | Tags: '+JSON.stringify(p.tags)+' | Variants: '+p.variants.length);
+    });
+    if(products.length === 0){
+      console.warn('NMH: No products returned. Check Storefront API scopes in Shopify admin.');
+    }
+  });
+}
+
 // ── INIT ──
 buildTicker();
 buildLME();
@@ -1690,7 +1708,7 @@ buildShop();
 window.addEventListener('load', function(){
   if(typeof ShopifyBuy !== 'undefined'){
     initShopify();
-    setTimeout(function(){ fetchShopifyProducts(function(){}); }, 1500);
+    setTimeout(function(){ fetchShopifyProducts(function(){}); debugShopify(); }, 2000);
   }
 });
 </script>
